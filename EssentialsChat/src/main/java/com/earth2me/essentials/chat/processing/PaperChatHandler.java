@@ -11,6 +11,14 @@ public class PaperChatHandler extends AbstractChatHandler {
         super(ess, essChat);
     }
 
+    @Override
+    protected Object cacheKey(final AbstractChatEvent event) {
+        // PaperChatListenerProvider hands back the very same wrapper for every priority of a given
+        // AsyncChatEvent, so the wrapper identifies the chat event and keeps concurrent chats from the
+        // same player in separate cache entries.
+        return event;
+    }
+
     public void registerListeners() {
         final PluginManager pm = essChat.getServer().getPluginManager();
         pm.registerEvents(new ChatListener(), essChat);

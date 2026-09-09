@@ -42,6 +42,18 @@ public abstract class AbstractChatHandler {
     }
 
     /**
+     * Identity token under which the {@link ChatProcessingCache.ProcessedChat} of a single chat event is
+     * stored while it travels from LOWEST to HIGHEST.
+     * <p>
+     * Defaults to the player, which is only correct while a player can have at most one chat event in
+     * flight. Platforms that hand out a stable per-event wrapper should override this and return the
+     * event, so two concurrent chats from the same player cannot clobber each other's entry.
+     */
+    protected Object cacheKey(final AbstractChatEvent event) {
+        return event.getPlayer();
+    }
+
+    /**
      * Apply chat formatting from config and from translations according to chat type.
      * <p>
      * Handled at {@link org.bukkit.event.EventPriority#LOWEST} on both preview and chat events.
@@ -62,10 +74,11 @@ public abstract class AbstractChatHandler {
         user.setDisplayNick();
 
         // Reuse cached IntermediateChat if available
-        ChatProcessingCache.ProcessedChat chat = cache.getProcessedChat(event.getPlayer());
+        final Object cacheKey = cacheKey(event);
+        ChatProcessingCache.ProcessedChat chat = cache.getProcessedChat(cacheKey);
         if (chat == null) {
             chat = new ChatProcessingCache.ProcessedChat(user, getChatType(user, event.getMessage()), event.getMessage());
-            cache.setProcessedChat(event.getPlayer(), chat);
+            cache.setProcessedChat(cacheKey, chat);
         }
 
         final long configRadius = ess.getSettings().getChatRadius();
@@ -138,7 +151,13 @@ public abstract class AbstractChatHandler {
             return;
         }
 
-        final ChatProcessingCache.Chat chat = cache.getProcessedChat(event.getPlayer());
+        final ChatProcessingCache.Chat chat = cache.getProcessedChat(cacheKey(event));
+
+        if (chat == null) {
+            // The LOWEST stage never ran for this event, or its entry was already consumed. Nothing to
+            // filter on, so let the event through untouched instead of throwing on the chat thread.
+            return;
+        }
 
         // If local chat is enabled, handle the recipients here; else we can just fire the chat event and return
         if (chat.getRadius() < 1) {
@@ -269,7 +288,7 @@ public abstract class AbstractChatHandler {
      */
     protected void handleChatPostFormat(AbstractChatEvent event) {
         if (isAborted(event)) {
-            cache.clearProcessedChat(event.getPlayer());
+            cache.clearProcessedChat(cacheKey(event));
         }
     }
 
@@ -281,10 +300,18 @@ public abstract class AbstractChatHandler {
             return;
         }
 
-        // This file should handle charging the user for the action before returning control back
-        charge(event, cache.getProcessedChat(event.getPlayer()));
+        final Object cacheKey = cacheKey(event);
+        final ChatProcessingCache.ProcessedChat chat = cache.getProcessedChat(cacheKey);
 
-        cache.clearProcessedChat(event.getPlayer());
+        if (chat == null) {
+            // Nothing was cached for this event, so there is no charge to apply and nothing to clean up.
+            return;
+        }
+
+        // This file should handle charging the user for the action before returning control back
+        charge(event, chat);
+
+        cache.clearProcessedChat(cacheKey);
     }
 
     boolean isAborted(final AbstractChatEvent event) {

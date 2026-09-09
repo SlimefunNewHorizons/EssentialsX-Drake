@@ -10,13 +10,17 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 
+import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Map;
 
 public abstract class PaperChatListenerProvider implements Listener {
     private final boolean formatParsing;
     private final LegacyComponentSerializer serializer;
-    private final Map<AsyncChatEvent, PaperChatEvent> eventMap = new IdentityHashMap<>();
+    // AsyncChatEvent is fired off the main thread, and several chat events can be in flight at the
+    // same time (e.g. when another plugin re-dispatches chat from its own async pool), so this map
+    // is mutated concurrently and must be synchronised.
+    private final Map<AsyncChatEvent, PaperChatEvent> eventMap = Collections.synchronizedMap(new IdentityHashMap<>());
 
     public PaperChatListenerProvider() {
         this(true);
@@ -93,14 +97,8 @@ public abstract class PaperChatListenerProvider implements Listener {
     }
 
     private PaperChatEvent wrap(final AsyncChatEvent event) {
-        PaperChatEvent paperChatEvent = eventMap.get(event);
-        if (paperChatEvent != null) {
-            return paperChatEvent;
-        }
-
-        paperChatEvent = new PaperChatEvent(event, serializer);
-        eventMap.put(event, paperChatEvent);
-
-        return paperChatEvent;
+        // computeIfAbsent so that two threads wrapping distinct events cannot interleave a resize,
+        // and so a single event always yields the very same wrapper instance.
+        return eventMap.computeIfAbsent(event, e -> new PaperChatEvent(e, serializer));
     }
 }

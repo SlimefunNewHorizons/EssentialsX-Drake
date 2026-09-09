@@ -3,26 +3,29 @@ package com.earth2me.essentials.chat.processing;
 import com.earth2me.essentials.Trade;
 import com.earth2me.essentials.User;
 import net.essentialsx.api.v2.ChatType;
-import org.bukkit.entity.Player;
 
 import java.util.Collections;
-import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.Map;
 
 public class ChatProcessingCache {
 
-    private final Map<Player, ProcessedChat> chats = Collections.synchronizedMap(new HashMap<>());
+    // Keyed by identity on a per-chat token supplied by the handler (the chat event itself where the
+    // platform gives us a stable wrapper, the player otherwise). Keying by player alone breaks when a
+    // player has two chat events in flight at once: the first one to reach HIGHEST clears the entry
+    // and the second then reads null at NORMAL/HIGHEST.
+    private final Map<Object, ProcessedChat> chats = Collections.synchronizedMap(new IdentityHashMap<>());
 
-    public ProcessedChat getProcessedChat(final Player player) {
-        return chats.get(player);
+    public ProcessedChat getProcessedChat(final Object key) {
+        return chats.get(key);
     }
 
-    public void setProcessedChat(final Player player, final ProcessedChat chat) {
-        chats.put(player, chat);
+    public void setProcessedChat(final Object key, final ProcessedChat chat) {
+        chats.put(key, chat);
     }
 
-    public void clearProcessedChat(final Player player) {
-        chats.remove(player);
+    public void clearProcessedChat(final Object key) {
+        chats.remove(key);
     }
 
     public abstract static class Chat {
